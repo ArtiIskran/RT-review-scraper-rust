@@ -88,12 +88,7 @@ async fn scrape_rt_reviews() {
         }
     };
 
-    //create reviews_api_url
-    let reviews_api_url = format!(
-        "https://www.rottentomatoes.com/napi/movie/{}/reviews/user?f=null&direction=prev&endCursor={}",
-        movie_id, end_cursor
-    );
-    // from client java script retrive reviews_api_url
+    // f_reviews_api_url script retrive reviews_api_url
     let script = format!(
         r#"
         var reviews = RottenTomatoes.context.movieReview;
@@ -167,8 +162,6 @@ async fn scrape_rt_reviews() {
             return;
         }
     };
-
-    let Client = &client;
     //while has next page is true grb more reviews
     while has_next_page.as_bool().unwrap() {
         //create reviews_api_url
@@ -176,40 +169,17 @@ async fn scrape_rt_reviews() {
             "https://www.rottentomatoes.com/napi/movie/{}/reviews/user?f=null&direction=prev&endCursor={}",
             movie_id, end_cursor
         );
-        // from client java script retrive reviews_api_url
-        let script = format!(
-            r#"
-        var reviews = RottenTomatoes.context.movieReview;
-        var movieID = reviews.movieId;
-        var page_info = reviews.pageInfo;
-        var end_cursor = page_info.endCursor;
-        var reviews_api_url = "https://www.rottentomatoes.com/napi/movie/" + movieID + "/reviews/user?f=null&direction=prev&endCursor=" + end_cursor;
-        return reviews_api_url;"#
-        );
-        //use reqeust to execute script
-        let reviews_api_url = match Client.execute(&script, vec![]).await {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("Failed to execute script: {:?}", e);
-                return;
-            }
-        };
-        //get data from that url
-        let reviews_api_url = match reviews_api_url.as_str() {
-            Some(s) => s,
-            None => {
-                eprintln!("Failed to convert to string");
-                return;
-            }
-        };
-        //use reqest to get data from that url
-        let res = match reqwest::get(reviews_api_url).await {
+        //replace " with empty space
+        let reviews_api_url = reviews_api_url.replace("\"", "");
+        //get html o fthat url
+        let res = match reqwest::get(&reviews_api_url).await {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("Failed to get response: {:?}", e);
                 return;
             }
         };
+        
         //print
         let items = res.text().await.unwrap();
         //convert to json
@@ -220,9 +190,18 @@ async fn scrape_rt_reviews() {
                 return;
             }
         };
+        //pretty the json
+        let items_json = serde_json::to_string_pretty(&items_json).unwrap();
+        let items_json: serde_json::Value = match serde_json::from_str(&items_json) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("Failed to convert to JSON: {:?}", e);
+                return;
+            }
+        };
+        print!("{:?}", items_json);
         //add reveiws to all reviews
         all_items.push(items_json);
-print!("{:?}",all_items);
         //get has next page
         has_next_page = match page_info.get("hasNextPage") {
             Some(h) => h,
@@ -231,16 +210,17 @@ print!("{:?}",all_items);
                 return;
             }
         };
+        if !has_next_page.as_bool().unwrap() {
+            end_cursor = match page_info.get("endCursor") {
+                Some(e) => e,
+                None => {
+                    eprintln!("Failed to get end cursor");
+                    return;
+                }
+            };
+        }
         //get end cursor
-        end_cursor = match page_info.get("endCursor") {
-            Some(e) => e,
-            None => {
-                eprintln!("Failed to get end cursor");
-                return;
-            }
-        };
     }
-let mut reveiws:&Vec<Value>= &vec![];
     //foreach all items get reviews
     //create list reveiews
     let mut reviews_list = vec![];
@@ -254,7 +234,6 @@ let mut reveiws:&Vec<Value>= &vec![];
         };
         //add reveiws to list
         reviews_list.push(reviews);
-
     }
     //list of reveiws
     let mut reveiws = vec![];
@@ -272,7 +251,7 @@ let mut reveiws:&Vec<Value>= &vec![];
         reveiws.push(review);
     }
     //save reviews to json
-    let mut file = File::create("reviews.json");
+    let file = File::create("reviews.json");
     match file {
         Ok(mut f) => {
             let json = serde_json::to_string_pretty(&reveiws).unwrap();
@@ -283,5 +262,4 @@ let mut reveiws:&Vec<Value>= &vec![];
             return;
         }
     }
-
 }
