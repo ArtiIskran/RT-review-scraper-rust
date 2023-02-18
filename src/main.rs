@@ -71,23 +71,9 @@ async fn scrape_rt_reviews() {
             return;
         }
     };
-    //from movie_data get pageInfo
-    let page_info = match movie_data.get("pageInfo") {
-        Some(p) => p,
-        None => {
-            eprintln!("Failed to get page info");
-            return;
-        }
-    };
-    //from page_info get endCursor
-    let end_cursor = match page_info.get("endCursor") {
-        Some(e) => e,
-        None => {
-            eprintln!("Failed to get end cursor");
-            return;
-        }
-    };
+    //get end cursor
 
+    
     // f_reviews_api_url script retrive reviews_api_url
     let script = format!(
         r#"
@@ -99,6 +85,7 @@ async fn scrape_rt_reviews() {
         return reviews_api_url;
     "#
     );
+    
     let reviews_api_url = match client.execute(&script, vec![]).await {
         Ok(r) => r,
         Err(e) => {
@@ -155,32 +142,40 @@ async fn scrape_rt_reviews() {
         }
     };
     //get end cursor
+
+    page_info = match movie_data.get("pageInfo") {
+        Some(p) => p,
+        None => {
+            eprintln!("Failed to get end_cursor");
+            return;
+        }
+    };
     let mut end_cursor = match page_info.get("endCursor") {
         Some(e) => e,
         None => {
-            eprintln!("Failed to get end cursor");
+            eprintln!("Failed to get end_cursor");
             return;
         }
     };
     //while has next page is true grb more reviews
     while has_next_page.as_bool().unwrap() {
         //create reviews_api_url
+        //string with new end cursor
         let reviews_api_url = format!(
-            "https://www.rottentomatoes.com/napi/movie/{}/reviews/user?f=null&direction=prev&endCursor={}",
-            movie_id, end_cursor
-        );
-        //replace " with empty space
-        let reviews_api_url = reviews_api_url.replace("\"", "");
-        //get html o fthat url
-        let res = match reqwest::get(&reviews_api_url).await {
+            "https://www.rottentomatoes.com/napi/movie/{}/reviews/user?f=null&direction=next&endCursor={}",
+            movie_id,
+            end_cursor
+        ).replace("\"", "");
+
+        //use reqest to get data from that url
+        let res = match reqwest::get(&*reviews_api_url).await {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("Failed to get response: {:?}", e);
                 return;
             }
         };
-        
-        //print
+        //rest to string
         let items = res.text().await.unwrap();
         //convert to json
         let items_json: serde_json::Value = match serde_json::from_str(&items) {
@@ -199,9 +194,19 @@ async fn scrape_rt_reviews() {
                 return;
             }
         };
-        print!("{:?}", items_json);
         //add reveiws to all reviews
         all_items.push(items_json);
+        //get last item
+        let last_item = all_items.last().unwrap();
+
+        //from last item get page info
+        let page_info = match last_item.get("pageInfo") {
+            Some(p) => p,
+            None => {
+                eprintln!("Failed to get page info");
+                return;
+            }
+        };
         //get has next page
         has_next_page = match page_info.get("hasNextPage") {
             Some(h) => h,
@@ -210,16 +215,14 @@ async fn scrape_rt_reviews() {
                 return;
             }
         };
-        if !has_next_page.as_bool().unwrap() {
-            end_cursor = match page_info.get("endCursor") {
-                Some(e) => e,
-                None => {
-                    eprintln!("Failed to get end cursor");
-                    return;
-                }
-            };
-        }
-        //get end cursor
+            end_cursor = match page_info.get("endCursor")
+        {
+            Some(e) => e,
+            None => {
+                eprintln!("Failed to get end cursor");
+                return;
+            }
+        };
     }
     //foreach all items get reviews
     //create list reveiews
